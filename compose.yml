@@ -1,0 +1,7 @@
+services:
+  the-daniel-test:
+    image: registry.gitlab.com/linobiotechag/playground/the-daniel-test:VERSION_PLACEHOLDER
+    ports:
+      - "127.0.0.1:8765:8501"
+    volumes:
+      - ./persisted:/app/persisted
