@@ -1,44 +1,11 @@
-# Byte-compiled / optimized / DLL files
+# Python-generated files
 __pycache__/
-*.py[cod]
-*$py.class
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
 
 # Virtual environments
-.venv/
-venv/
-env/
-
-# uv lock file (optional - can include for reproducibility)
-# uv.lock
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Persisted data (runtime generated)
-persisted/Measurements/
-persisted/analysis_output/
-persisted/user_config.json
-persisted/experiment_log.csv
-
-# Keep the persisted directory structure
-!persisted/.gitkeep
-
-# OS files
+.venv
 .DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Temporary files
-*.tmp
-~$*
-
-# Build artifacts
-dist/
-build/
-*.egg-info/

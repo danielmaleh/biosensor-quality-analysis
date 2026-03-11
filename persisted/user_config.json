@@ -1,0 +1,59 @@
+{
+    "noise_window": 20,
+    "spline_window": 50,
+    "trend_method": "Median",
+    "trend_iterations": 1,
+    "apply_spline": false,
+    "vis_noise_low": 1e-10,
+    "vis_noise_high": 5e-10,
+    "vis_dnoise_low": 5e-11,
+    "vis_dnoise_high": 1.2e-09,
+    "loop_window": 20,
+    "loop_amp_thresh": 5e-09,
+    "baseline_window": 5,
+    "baseline_tolerance": 2.0,
+    "hampel_sigma": 15.0,
+    "intersect_spikes": true,
+    "spike_proximity": 1,
+    "step_method": "Piecewise Fit",
+    "step_window": 8,
+    "step_poly_order": 1,
+    "thresh_piecewise": 0.95,
+    "thresh_slope": 3e-09,
+    "intersect_steps": true,
+    "limit_noise_ratio": 0.05,
+    "limit_snr_median": 20.0,
+    "limit_snr_p10": 10.0,
+    "limit_loop_ratio": 0.05,
+    "limit_step_ratio": 0.15,
+    "limit_signal_std": 5e-10,
+    "limit_deriv_noise": 1e-11,
+    "limit_model_rmse": 0.1,
+    "limit_ref_points_rmse": 5e-09,
+    "limit_overall_score": 0.75,
+    "limit_global_pass_rate": 0.9,
+    "limit_global_avg_score": 0.8,
+    "limit_chip_spread": 1e-08,
+    "normalization_method": "Z-Score",
+    "deriv_noise_weight": 0.0,
+    "ref_points": [
+        {
+            "Time": "1500",
+            "Value": "50e-9"
+        },
+        {
+            "Time": "2500",
+            "Value": "250e-9"
+        }
+    ],
+    "experiment_metadata": {
+        "2025-11-27_THE_DANIEL_TEST_SIR06-3_Coherent Mass Density_DiffractionEfficiencyAlgorithms_SIGNAL__FROM_INT_BOUNDING_BOX (1).csv": {
+            "version": "1.19.20",
+            "time": "15:23"
+        },
+        "2025-11-27_THE_DANIEL_TEST_SIR06-3_Coherent Mass Density_DiffractionEfficiencyAlgorithms_SIGNAL__FROM_INT_BOUNDING_BOX.csv": {
+            "version": "1.2",
+            "time": "11:08"
+        }
+    }
+}

@@ -16,6 +16,74 @@ from src.utils import load_data
 from src.analysis import analyze_sensor, run_global_analysis
 from src.scoring import evaluate_metric
 
+
+def parse_filename(filepath):
+    """Parse experiment filename into display-friendly components."""
+    basename = os.path.basename(filepath)
+    name_no_ext = os.path.splitext(basename)[0]
+
+    result = {
+        "date": "",
+        "test_name": "",
+        "reader": "",
+        "display_name": basename,
+        "suffix": "",
+    }
+
+    # Extract date
+    date_match = re.match(r"^(\d{4}-\d{2}-\d{2})", name_no_ext)
+    if date_match:
+        result["date"] = date_match.group(1)
+
+    # Extract test name and reader
+    # Reader pattern: 2-4 uppercase letters + 2-3 digits, optionally -N (e.g. SIR06, NOV01, SIR06-3)
+    reader_pattern = r"([A-Z]{2,4}\d{2,3}(?:-\d+)?)"
+
+    # Try: DATE_TESTNAME_READER_description
+    full_match = re.match(
+        r"^(\d{4}-\d{2}-\d{2})_((?:THE_DANIEL_TEST|DE_GENERAL_TEST)(?:-\d+|_\d+)?)_"
+        + reader_pattern
+        + r"[_\s]",
+        name_no_ext,
+    )
+
+    if full_match:
+        raw_test = full_match.group(2)
+        result["test_name"] = raw_test.replace("_", " ").title()
+        result["reader"] = full_match.group(3)
+    else:
+        # Fallback: DATE_TESTNAME_description (no separate reader)
+        fallback_match = re.match(
+            r"^(\d{4}-\d{2}-\d{2})_((?:THE_DANIEL_TEST|DE_GENERAL_TEST)(?:-\d+|_\d+)?)[_\s]",
+            name_no_ext,
+        )
+        if fallback_match:
+            raw_test = fallback_match.group(2)
+            result["test_name"] = raw_test.replace("_", " ").title()
+
+    # Detect duplicate suffix like "(1)"
+    suffix_match = re.search(r"\((\d+)\)\s*$", basename)
+    if suffix_match:
+        result["suffix"] = f"({suffix_match.group(1)})"
+
+    # Build compact display name
+    parts = []
+    if result["date"]:
+        parts.append(result["date"])
+    if result["reader"]:
+        parts.append(result["reader"])
+    if result["test_name"]:
+        parts.append(result["test_name"])
+    elif not result["reader"]:
+        parts.append(name_no_ext[:40])
+    if result["suffix"]:
+        parts.append(result["suffix"])
+
+    result["display_name"] = " | ".join(parts) if parts else basename
+
+    return result
+
+
 # --- CONFIG ---
 OUTPUT_DIR = "persisted/analysis_output"
 CONFIG_FILE = "persisted/user_config.json"
@@ -169,6 +237,8 @@ def view_experiment_log():
             if os.path.exists(full_path):
                 st.session_state["load_file_req"] = full_path
                 st.session_state["load_sensor_req"] = sel_sensor
+                st.session_state["selected_experiment_path"] = full_path
+                st.session_state["selected_sensor_name"] = sel_sensor
                 st.success(f"Ready to load: {sel_sensor}")
                 if st.button("Go to Analysis"):
                     st.rerun()
@@ -176,6 +246,105 @@ def view_experiment_log():
                 st.error(f"File not found in Measurements: {sel_file}")
     else:
         st.info("Log file is empty.")
+
+
+@st.dialog("Select Experiment", width="large")
+def select_experiment_dialog(csv_files):
+    st.write("Choose an experiment to analyze.")
+
+    rows = []
+    for f in csv_files:
+        parsed = parse_filename(f)
+        rows.append(
+            {
+                "Date": parsed["date"],
+                "Reader": parsed["reader"],
+                "Test": parsed["test_name"],
+                "Variant": parsed["suffix"],
+                "_path": f,
+            }
+        )
+
+    display_df = pd.DataFrame(rows)
+
+    selection = st.dataframe(
+        display_df[["Date", "Reader", "Test", "Variant"]],
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    if selection.selection.rows:
+        idx = selection.selection.rows[0]
+        chosen = rows[idx]
+        st.success(
+            f"Selected: {chosen['Date']} | {chosen['Reader'] or chosen['Test']}"
+        )
+        if st.button("Load Experiment", type="primary", use_container_width=True):
+            st.session_state["selected_experiment_path"] = chosen["_path"]
+            st.session_state["load_file_req"] = chosen["_path"]
+            st.rerun()
+
+
+@st.dialog("Select Sensor", width="large")
+def select_sensor_dialog(sensor_cols, summary_df):
+    st.write("Select a sensor for detailed analysis.")
+
+    # Parse grid coordinates
+    grid_info = {}
+    for col_name in sensor_cols:
+        match = re.search(r"R(\d+)C(\d+)", col_name)
+        if match:
+            r, c = int(match.group(1)), int(match.group(2))
+            grid_info[(r, c)] = col_name
+
+    if not grid_info:
+        # Fallback: simple list if no grid pattern
+        chosen = st.selectbox("Select Sensor", sensor_cols)
+        if st.button("Select", type="primary"):
+            st.session_state["selected_sensor_name"] = chosen
+            st.rerun()
+        return
+
+    # Build pass/fail + score lookup
+    status_map = {}
+    score_map = {}
+    for _, row in summary_df.iterrows():
+        status_map[row["metric"]] = row["overall_pass"]
+        score_map[row["metric"]] = row["overall_score"]
+
+    all_rows = sorted(set(r for r, c in grid_info.keys()))
+    all_cols = sorted(set(c for r, c in grid_info.keys()))
+
+    current_sensor = st.session_state.get("selected_sensor_name", "")
+
+    # Render grid
+    header_cols = st.columns([0.3] + [1] * len(all_cols))
+    header_cols[0].write("")
+    for i, c in enumerate(all_cols):
+        header_cols[i + 1].caption(f"**C{c}**")
+
+    for r in all_rows:
+        row_cols = st.columns([0.3] + [1] * len(all_cols))
+        row_cols[0].caption(f"**R{r}**")
+        for i, c in enumerate(all_cols):
+            sensor_name = grid_info.get((r, c))
+            if sensor_name:
+                passed = status_map.get(sensor_name, True)
+                score = score_map.get(sensor_name, 0)
+                icon = "+" if passed else "X"
+                label = f"{icon} R{r}C{c}\n{score:.2f}"
+                is_current = sensor_name == current_sensor
+
+                if row_cols[i + 1].button(
+                    label,
+                    key=f"sensor_btn_{r}_{c}",
+                    use_container_width=True,
+                    type="primary" if is_current else "secondary",
+                ):
+                    st.session_state["selected_sensor_name"] = sensor_name
+                    st.rerun()
 
 
 defaults = load_config()
@@ -235,6 +404,7 @@ if uploaded_file is not None:
         st.session_state["last_uploaded_file"] = fname
         # Auto-select the newly uploaded file
         st.session_state["load_file_req"] = save_path
+        st.session_state["selected_experiment_path"] = save_path
 
         st.sidebar.success(f"✅ Saved: {fname}")
         if page == "Experiment Description":
@@ -256,30 +426,29 @@ if not csv_files:
     if page != "Experiment Description":
         st.stop()
 else:
-    # Handle Log Loading Override
-    default_file_ix = 0
+    # Initialize selected experiment from load_file_req or default
     if "load_file_req" in st.session_state:
-        try:
-            # 'load_file_req' is full path "./persisted/Measurements/file.csv"
-            # csv_files are also paths "./persisted/Measurements/file.csv"
-            default_file_ix = csv_files.index(st.session_state["load_file_req"])
-            # Clear it to avoid stuck state? Or keep it? Keep it for now.
-        except:
-            pass
+        req_path = st.session_state["load_file_req"]
+        if req_path in csv_files:
+            st.session_state["selected_experiment_path"] = req_path
 
-    # Preview the file to be selected to load metadata
-    # We need to detect file change to update inputs
+    if (
+        "selected_experiment_path" not in st.session_state
+        or st.session_state["selected_experiment_path"] not in csv_files
+    ):
+        st.session_state["selected_experiment_path"] = csv_files[0]
 
-    # 1. Placeholders for inputs (appear above dropdown)
+    selected_file = st.session_state["selected_experiment_path"]
+
+    # 1. Placeholders for inputs (appear above file selector)
     meta_placeholder = st.sidebar.container()
 
-    # 2. File Selector
-    selected_file = st.sidebar.selectbox(
-        "Select Data File",
-        csv_files,
-        index=default_file_ix,
-        format_func=lambda x: os.path.basename(x),
-    )
+    # 2. File Selector (compact display + dialog button)
+    current_parsed = parse_filename(selected_file)
+    st.sidebar.markdown(f"**Experiment:** {current_parsed['display_name']}")
+
+    if st.sidebar.button("Select Experiment", use_container_width=True):
+        select_experiment_dialog(csv_files)
 
     # 3. Handle File Change Logic
     if "last_selected_file_meta" not in st.session_state:
@@ -493,6 +662,42 @@ with st.sidebar.expander("Analysis Configuration", expanded=False):
 
     st.markdown("#### Model Comparison")
 
+    # Reference Curve Upload
+    ref_curve_path = "src/metrics/Perfect_reference_curve.csv"
+    if os.path.exists(ref_curve_path):
+        st.caption("Reference curve loaded.")
+    else:
+        st.warning("No reference curve found.")
+
+    ref_curve_upload = st.file_uploader(
+        "Upload Reference Curve (CSV)",
+        type=["csv"],
+        key="ref_curve_uploader",
+        help="Replaces the current Perfect Reference Curve used for model comparison.",
+    )
+    if ref_curve_upload is not None:
+        try:
+            # Validate: must have a time column and at least one data column
+            test_df = pd.read_csv(ref_curve_upload)
+            time_cols = [c for c in test_df.columns if "time" in c.lower()]
+            data_cols = [
+                c
+                for c in test_df.columns
+                if c not in time_cols and "Unnamed" not in c
+            ]
+            if not time_cols or not data_cols:
+                st.error(
+                    "Invalid CSV: needs a 'time' column and at least one data column."
+                )
+            else:
+                ref_curve_upload.seek(0)
+                with open(ref_curve_path, "wb") as f:
+                    f.write(ref_curve_upload.getbuffer())
+                st.success("Reference curve updated!")
+                st.cache_data.clear()
+        except Exception as e:
+            st.error(f"Error reading CSV: {e}")
+
     normalization_method = st.selectbox(
         "Normalization", ["MinMax [0,1]", "Z-Score"], key="normalization_method"
     )
@@ -705,6 +910,7 @@ if page == "Experiment Description":
 
     else:
         st.error(f"PDF file '{pdf_file}' not found.")
+    st.stop()
 
 else:
     # --- ANALYSIS DASHBOARD CONTENT ---
@@ -780,29 +986,46 @@ else:
 
     # Determine Default Sensor (First Failed, or First Overall, or Loaded from Log)
     failed_list = summary_df[~summary_df["overall_pass"]]["metric"].tolist()
-    default_index = 0
 
     # Check for Log Load Request
     if (
         "load_sensor_req" in st.session_state
         and st.session_state.get("load_file_req") == selected_file
     ):
-        try:
-            default_index = sensor_cols.index(st.session_state["load_sensor_req"])
-        except:
-            pass
-    # Else Default to Failure
-    elif failed_list:
-        try:
-            default_index = sensor_cols.index(failed_list[0])
-        except:
-            pass
+        req_sensor = st.session_state["load_sensor_req"]
+        if req_sensor in sensor_cols:
+            st.session_state["selected_sensor_name"] = req_sensor
+    # Default to first failure if no explicit selection for this file
+    elif st.session_state.get("selected_sensor_name") not in sensor_cols:
+        if failed_list:
+            st.session_state["selected_sensor_name"] = failed_list[0]
+        else:
+            st.session_state["selected_sensor_name"] = sensor_cols[0]
 
-    # Render Sensor Selectbox in the placeholder at the top
+    # Guard: ensure selection is valid
+    if st.session_state.get("selected_sensor_name") not in sensor_cols:
+        st.session_state["selected_sensor_name"] = sensor_cols[0]
+
+    selected_sensor = st.session_state["selected_sensor_name"]
+
+    # Render Sensor selector in the placeholder at the top
     with sensor_placeholder.container():
-        selected_sensor = st.selectbox(
-            "Select Sensor for Detail", sensor_cols, index=default_index
-        )
+        # Show current sensor with pass/fail badge
+        sensor_row = summary_df[summary_df["metric"] == selected_sensor]
+        if not sensor_row.empty:
+            s_passed = sensor_row.iloc[0]["overall_pass"]
+            s_score = sensor_row.iloc[0]["overall_score"]
+            s_badge = "PASS" if s_passed else "FAIL"
+            st.markdown(
+                f"**Sensor:** `{selected_sensor}` ({s_score:.2f} {s_badge})"
+            )
+        else:
+            st.markdown(f"**Sensor:** `{selected_sensor}`")
+
+        if st.button(
+            "Select Sensor", key="btn_select_sensor", use_container_width=True
+        ):
+            select_sensor_dialog(sensor_cols, summary_df)
 
 # --- GLOBAL ANALYSIS MONITOR UI ---
 
