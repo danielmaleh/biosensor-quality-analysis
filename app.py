@@ -281,10 +281,36 @@ def select_experiment_dialog(csv_files):
         st.success(
             f"Selected: {chosen['Date']} | {chosen['Reader'] or chosen['Test']}"
         )
-        if st.button("Load Experiment", type="primary", use_container_width=True):
-            st.session_state["selected_experiment_path"] = chosen["_path"]
-            st.session_state["load_file_req"] = chosen["_path"]
-            st.rerun()
+        btn_load, btn_delete = st.columns(2)
+        with btn_load:
+            if st.button("Load Experiment", type="primary", use_container_width=True):
+                st.session_state["selected_experiment_path"] = chosen["_path"]
+                st.session_state["load_file_req"] = chosen["_path"]
+                st.rerun()
+        with btn_delete:
+            if st.button("Delete", type="secondary", use_container_width=True):
+                st.session_state["_pending_delete"] = chosen["_path"]
+                st.rerun()
+
+    # Confirmation step for deletion
+    pending = st.session_state.pop("_pending_delete", None)
+    if pending:
+        fname = os.path.basename(pending)
+        st.warning(f"Are you sure you want to delete **{fname}**? This cannot be undone.")
+        col_yes, col_no = st.columns(2)
+        with col_yes:
+            if st.button("Yes, delete", type="primary", use_container_width=True):
+                try:
+                    os.remove(pending)
+                except OSError:
+                    pass
+                # Clear selection if the deleted file was active
+                if st.session_state.get("selected_experiment_path") == pending:
+                    st.session_state.pop("selected_experiment_path", None)
+                st.rerun()
+        with col_no:
+            if st.button("Cancel", use_container_width=True):
+                st.rerun()
 
 
 @st.dialog("Select Sensor", width="large")
